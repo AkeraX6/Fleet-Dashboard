@@ -274,6 +274,18 @@ if st.session_state.page == "map":
             icon=folium.Icon(color=marker_color, icon="truck", prefix="fa")
         ).add_to(cluster)
 
+    # Hide attribution footer with CSS
+    st.markdown(
+        """
+        <style>
+        .leaflet-control-attribution {
+            display: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
     # Display map WITHOUT triggering reruns on interactions
     map_output = st_folium(
         m, 
