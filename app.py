@@ -274,18 +274,16 @@ if st.session_state.page == "map":
             icon=folium.Icon(color=marker_color, icon="truck", prefix="fa")
         ).add_to(cluster)
 
-    # Hide attribution footer with CSS
-    st.markdown(
-        """
-        <style>
-        .leaflet-control-attribution {
-            display: none !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    
+    # Inject CSS directly into map to hide attribution
+    hide_attribution_css = """
+    <style>
+    .leaflet-control-attribution {
+        display: none !important;
+    }
+    </style>
+    """
+    m.get_root().html.add_child(folium.Element(hide_attribution_css))
+
     # Display map WITHOUT triggering reruns on interactions
     map_output = st_folium(
         m, 
@@ -1010,4 +1008,3 @@ if st.session_state.page == "download":
     )
     
     st.caption("This will download all fleet data including all columns and vehicles.")
-
