@@ -225,7 +225,12 @@ if st.session_state.page == "map":
     center_lat = float(map_df["LAT"].mean())
     center_lon = float(map_df["LON"].mean())
 
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=2, tiles="CartoDB positron")
+    m = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=2, 
+        tiles="CartoDB positron",
+        attr=""  # Remove attribution/credits
+    )
     cluster = MarkerCluster(spiderfyOnMaxZoom=True, showCoverageOnHover=False, disableClusteringAtZoom=10)
     cluster.add_to(m)
 
@@ -993,3 +998,4 @@ if st.session_state.page == "download":
     )
     
     st.caption("This will download all fleet data including all columns and vehicles.")
+
