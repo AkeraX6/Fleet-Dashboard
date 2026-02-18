@@ -12,15 +12,28 @@ from utils import load_fleet_excel, save_fleet_excel, update_vehicle_by_unit, CO
 
 st.set_page_config(page_title="Fleet Dashboard", page_icon="🚛", layout="wide")
 
-EXCEL_PATH = "data/fleet.xlsx"
+# Fleet type configuration
+FLEET_CONFIG = {
+    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": "⛏️"},
+    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": "🚇"}
+}
 SHEET_NAME = "Fleet"
+
+# Initialize fleet type in session state
+if "fleet_type" not in st.session_state:
+    st.session_state.fleet_type = "OP"
+
+# Get current excel path based on fleet type
+def get_excel_path():
+    return FLEET_CONFIG[st.session_state.fleet_type]["path"]
 
 # -------------------------
 # Cache + helpers
 # -------------------------
 @st.cache_data(show_spinner=False)
-def get_data():
-    return load_fleet_excel(EXCEL_PATH, sheet_name=SHEET_NAME)
+def get_data(fleet_type: str):
+    excel_path = FLEET_CONFIG[fleet_type]["path"]
+    return load_fleet_excel(excel_path, sheet_name=SHEET_NAME)
 
 def reload_data():
     st.cache_data.clear()
@@ -82,9 +95,9 @@ def format_year(v):
 # Load data
 # -------------------------
 try:
-    df = get_data()
+    df = get_data(st.session_state.fleet_type)
 except PermissionError:
-    st.error(f"Permission denied: {EXCEL_PATH}")
+    st.error(f"Permission denied: {get_excel_path()}")
     st.info("Close Excel (EXCEL.EXE) if the file is open, then rerun Streamlit.")
     st.stop()
 
@@ -111,6 +124,49 @@ if "selected_unit" not in st.session_state:
 # Sidebar navigation
 # -------------------------
 st.sidebar.title("🚚 Fleet Dashboard")
+
+# Fleet Type Toggle Switch
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### Fleet Type")
+
+# Create toggle buttons for OP/UG
+toggle_col1, toggle_col2 = st.sidebar.columns(2)
+
+with toggle_col1:
+    op_selected = st.session_state.fleet_type == "OP"
+    if st.button(
+        f"⛏️ OP",
+        use_container_width=True,
+        type="primary" if op_selected else "secondary",
+        key="btn_op"
+    ):
+        if st.session_state.fleet_type != "OP":
+            st.session_state.fleet_type = "OP"
+            st.session_state.selected_unit = None
+            st.session_state.page = "map"
+            if "map_selected_unit" in st.session_state:
+                del st.session_state.map_selected_unit
+            st.rerun()
+
+with toggle_col2:
+    ug_selected = st.session_state.fleet_type == "UG"
+    if st.button(
+        f"🚇 UG",
+        use_container_width=True,
+        type="primary" if ug_selected else "secondary",
+        key="btn_ug"
+    ):
+        if st.session_state.fleet_type != "UG":
+            st.session_state.fleet_type = "UG"
+            st.session_state.selected_unit = None
+            st.session_state.page = "map"
+            if "map_selected_unit" in st.session_state:
+                del st.session_state.map_selected_unit
+            st.rerun()
+
+# Show current fleet info
+current_fleet = FLEET_CONFIG[st.session_state.fleet_type]
+st.sidebar.caption(f"📂 {current_fleet['name']} Fleet")
 
 # Determine the correct radio index based on current page
 # details and edit_one pages should keep Map selected
@@ -207,7 +263,9 @@ st.markdown("---")
 # PAGE: MAP
 # =========================
 if st.session_state.page == "map":
-    st.title("🌍 Fleet Map")
+    fleet_icon = FLEET_CONFIG[st.session_state.fleet_type]["icon"]
+    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+    st.title(f"{fleet_icon} {fleet_name} Fleet Map")
 
     map_df = filtered.copy()
     map_df["LAT"] = map_df["LAT"].apply(to_float)
@@ -560,7 +618,7 @@ if st.session_state.page == "edit_one":
             }
 
             df2 = update_vehicle_by_unit(df, unit, updates)
-            save_fleet_excel(df2, EXCEL_PATH, sheet_name=SHEET_NAME)
+            save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
             reload_data()
 
             st.success("Saved ✅ Updated in Excel.")
@@ -576,7 +634,9 @@ if st.session_state.page == "edit_one":
 # PAGE: STATS
 # =========================
 if st.session_state.page == "stats":
-    st.title("📊 Fleet Analytics")
+    fleet_icon = FLEET_CONFIG[st.session_state.fleet_type]["icon"]
+    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+    st.title(f"📊 {fleet_name} Fleet Analytics")
     
     # Use all data for stats (no filters)
     stats_df = df.copy()
@@ -900,7 +960,8 @@ if st.session_state.page == "stats":
 # PAGE: ADD VEHICLE
 # =========================
 if st.session_state.page == "add":
-    st.title("➕ Add Vehicle")
+    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+    st.title(f"➕ Add Vehicle to {fleet_name} Fleet")
     st.warning("Close Excel before saving.")
 
     with st.form("add_vehicle_form"):
@@ -968,7 +1029,7 @@ if st.session_state.page == "add":
                 df2 = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                 df2 = df2[COLUMNS]
 
-                save_fleet_excel(df2, EXCEL_PATH, sheet_name=SHEET_NAME)
+                save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
                 reload_data()
                 st.success("Added ✅ Saved to Excel.")
             except PermissionError:
@@ -980,9 +1041,10 @@ if st.session_state.page == "add":
 # PAGE: DOWNLOAD FLEET
 # =========================
 if st.session_state.page == "download":
-    st.title("📥 Download Fleet Data")
+    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+    st.title(f"📥 Download {fleet_name} Fleet Data")
     
-    st.info(f"Total vehicles in database: **{len(df)}**")
+    st.info(f"Total vehicles in **{fleet_name}** database: **{len(df)}**")
     
     # Show preview of data
     st.markdown("### Data Preview")
@@ -998,13 +1060,15 @@ if st.session_state.page == "download":
         df.to_excel(writer, index=False, sheet_name='Fleet')
     excel_data = output.getvalue()
     
+    fleet_prefix = st.session_state.fleet_type.lower()
     st.download_button(
-        label="📥 Download Complete Fleet (Excel)",
+        label=f"📥 Download Complete {fleet_name} Fleet (Excel)",
         data=excel_data,
-        file_name=datetime.now().strftime("fleet_%d_%m_%Y.xlsx"),
+        file_name=datetime.now().strftime(f"{fleet_prefix}_fleet_%d_%m_%Y.xlsx"),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
         type="primary"
     )
     
-    st.caption("This will download all fleet data including all columns and vehicles.")
+    st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
+
