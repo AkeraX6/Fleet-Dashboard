@@ -14,8 +14,8 @@ st.set_page_config(page_title="Fleet Dashboard", page_icon="🚛", layout="wide"
 
 # Fleet type configuration
 FLEET_CONFIG = {
-    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": "⛏️"},
-    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": "🚇"}
+    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": ""},
+    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": ""}
 }
 SHEET_NAME = "Fleet"
 
@@ -135,7 +135,7 @@ toggle_col1, toggle_col2 = st.sidebar.columns(2)
 with toggle_col1:
     op_selected = st.session_state.fleet_type == "OP"
     if st.button(
-        f"⛏️ OP",
+        f" OP",
         use_container_width=True,
         type="primary" if op_selected else "secondary",
         key="btn_op"
@@ -151,7 +151,7 @@ with toggle_col1:
 with toggle_col2:
     ug_selected = st.session_state.fleet_type == "UG"
     if st.button(
-        f"🚇 UG",
+        f" UG",
         use_container_width=True,
         type="primary" if ug_selected else "secondary",
         key="btn_ug"
