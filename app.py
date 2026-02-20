@@ -9,13 +9,17 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 
 from utils import load_fleet_excel, save_fleet_excel, update_vehicle_by_unit, COLUMNS
+from supabase_store import has_supabase_secrets, load_fleet_db, upsert_vehicle_db
+
+# Check if Supabase is configured (for production vs local dev)
+USE_SUPABASE = has_supabase_secrets()
 
 st.set_page_config(page_title="Fleet Dashboard", page_icon="🚛", layout="wide")
 
 # Fleet type configuration
 FLEET_CONFIG = {
-    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": ""},
-    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": ""}
+    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": "⛏️"},
+    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": "🚇"}
 }
 SHEET_NAME = "Fleet"
 
@@ -32,8 +36,13 @@ def get_excel_path():
 # -------------------------
 @st.cache_data(show_spinner=False)
 def get_data(fleet_type: str):
-    excel_path = FLEET_CONFIG[fleet_type]["path"]
-    return load_fleet_excel(excel_path, sheet_name=SHEET_NAME)
+    if USE_SUPABASE:
+        # Load from Supabase database
+        return load_fleet_db(fleet_type, COLUMNS)
+    else:
+        # Fallback to Excel for local development
+        excel_path = FLEET_CONFIG[fleet_type]["path"]
+        return load_fleet_excel(excel_path, sheet_name=SHEET_NAME)
 
 def reload_data():
     st.cache_data.clear()
@@ -96,9 +105,9 @@ def format_year(v):
 # -------------------------
 try:
     df = get_data(st.session_state.fleet_type)
-except PermissionError:
-    st.error(f"Permission denied: {get_excel_path()}")
-    st.info("Close Excel (EXCEL.EXE) if the file is open, then rerun Streamlit.")
+except Exception as e:
+    st.error(f"Error loading data: {e}")
+    st.info("Check your database connection or Streamlit secrets.")
     st.stop()
 
 # -------------------------
@@ -135,7 +144,7 @@ toggle_col1, toggle_col2 = st.sidebar.columns(2)
 with toggle_col1:
     op_selected = st.session_state.fleet_type == "OP"
     if st.button(
-        f" OP",
+        f"⛏️ OP",
         use_container_width=True,
         type="primary" if op_selected else "secondary",
         key="btn_op"
@@ -151,7 +160,7 @@ with toggle_col1:
 with toggle_col2:
     ug_selected = st.session_state.fleet_type == "UG"
     if st.button(
-        f" UG",
+        f"🚇 UG",
         use_container_width=True,
         type="primary" if ug_selected else "secondary",
         key="btn_ug"
@@ -617,16 +626,21 @@ if st.session_state.page == "edit_one":
                 "LON": LON,
             }
 
-            df2 = update_vehicle_by_unit(df, unit, updates)
-            save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
+            if USE_SUPABASE:
+                # Save to Supabase database
+                updates["Unit"] = unit  # Include Unit for upsert
+                upsert_vehicle_db(st.session_state.fleet_type, updates)
+            else:
+                # Fallback to Excel for local dev
+                df2 = update_vehicle_by_unit(df, unit, updates)
+                save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
+            
             reload_data()
 
-            st.success("Saved ✅ Updated in Excel.")
+            st.success("Saved ✅ Updated successfully.")
             st.session_state.page = "details"
             st.rerun()
 
-        except PermissionError:
-            st.error("Permission denied. Close Excel and try again.")
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -1026,14 +1040,18 @@ if st.session_state.page == "add":
                     "LAT": LAT.strip(),
                     "LON": LON.strip(),
                 }
-                df2 = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                df2 = df2[COLUMNS]
-
-                save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
+                
+                if USE_SUPABASE:
+                    # Save to Supabase database
+                    upsert_vehicle_db(st.session_state.fleet_type, new_row)
+                else:
+                    # Fallback to Excel for local dev
+                    df2 = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    df2 = df2[COLUMNS]
+                    save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
+                
                 reload_data()
-                st.success("Added ✅ Saved to Excel.")
-            except PermissionError:
-                st.error("Permission denied. Close Excel and try again.")
+                st.success("Added ✅ Saved successfully.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -1069,6 +1087,9 @@ if st.session_state.page == "download":
         use_container_width=True,
         type="primary"
     )
+    
+    st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
+
     
     st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
 
