@@ -36,6 +36,69 @@ DB_TO_APP = {v: k for k, v in APP_TO_DB.items()}
 # Table name in Supabase
 TABLE_NAME = "fleet"
 
+# Columns that should be integers (years)
+INTEGER_COLUMNS = {"Chassis Year", "Body Year"}
+
+# Columns that should be floats
+FLOAT_COLUMNS = {"Capacity (MT)", "LAT", "LON"}
+
+
+def _convert_value_for_db(app_col: str, value):
+    """
+    Convert a value to the appropriate type for the database.
+    """
+    # Handle None/NA first
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (ValueError, TypeError):
+        pass
+    
+    # Handle empty strings
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    
+    # Convert to string for processing
+    str_val = str(value).strip()
+    
+    # Integer columns (years) - convert "2017.0" -> 2017
+    if app_col in INTEGER_COLUMNS:
+        try:
+            float_val = float(str_val)
+            return int(float_val)
+        except (ValueError, TypeError):
+            return None
+    
+    # Float columns (capacity, coordinates)
+    if app_col in FLOAT_COLUMNS:
+        try:
+            return float(str_val)
+        except (ValueError, TypeError):
+            return None
+    
+    # Everything else stays as string
+    return str_val
+
+
+def _format_value_for_display(app_col: str, value):
+    """
+    Format a value from DB for display in the app.
+    Ensures years display as "2017" not "2017.0"
+    """
+    if value is None:
+        return ""
+    
+    # Integer columns (years) - format as integer string
+    if app_col in INTEGER_COLUMNS:
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return value
+    
+    return value
+
 
 def get_supabase_client() -> Client:
     """
@@ -101,6 +164,11 @@ def load_fleet_db(fleet_type: str, app_columns: list[str]) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = pd.NA
     
+    # Format values for display (especially years)
+    for col in app_columns:
+        if col in INTEGER_COLUMNS:
+            df[col] = df[col].apply(lambda v: _format_value_for_display(col, v))
+    
     return df[app_columns]
 
 
@@ -128,15 +196,8 @@ def upsert_vehicle_db(fleet_type: str, row_app: dict) -> None:
     for app_col, db_col in APP_TO_DB.items():
         if app_col in row_app:
             value = row_app[app_col]
-            
-            # Convert pandas NA/NaN to None
-            if pd.isna(value):
-                value = None
-            # Convert empty strings to None for cleaner data
-            elif isinstance(value, str) and value.strip() == "":
-                value = None
-            
-            payload[db_col] = value
+            # Convert to appropriate type for DB
+            payload[db_col] = _convert_value_for_db(app_col, value)
     
     # Upsert with conflict on (fleet_type, unit)
     sb.table(TABLE_NAME).upsert(
@@ -160,3 +221,4 @@ def delete_vehicle_db(fleet_type: str, unit: str) -> None:
     ).eq(
         "unit", str(unit).strip()
     ).execute()
+
