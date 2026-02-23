@@ -23,6 +23,20 @@ COLUMNS = [
     "LON",
 ]
 
+PLANTS_COLUMNS = [
+    "Region",
+    "Country",
+    "Operation",
+    "Product",
+    "Type",
+    "Capacity",
+    "Formulation",
+    "Raw Material",
+    "Status",
+    "LAT",
+    "LON",
+]
+
 def _normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
@@ -71,3 +85,4 @@ def update_vehicle_by_unit(df: pd.DataFrame, unit: str, updates: dict) -> pd.Dat
         if k in df.columns:
             df.at[i, k] = v
     return df
+
