@@ -249,9 +249,9 @@ else:
     st.sidebar.caption(f"📂 Plants Database")
 
 # Determine the correct radio index based on current page
-# details and edit_one pages should keep Map selected
+# details, edit_one, and edit_plant pages should keep Map selected
 current_page = st.session_state.page
-if current_page in ["map", "details", "edit_one"]:
+if current_page in ["map", "details", "edit_one", "edit_plant"]:
     nav_index = 0
 elif current_page == "stats":
     nav_index = 1
@@ -294,7 +294,11 @@ if st.session_state.dataset == "FLEET":
     elif nav == "📥 Download Fleet":
         st.session_state.page = "download"
 else:  # PLANTS
-    if nav == "🌍 Map":
+    if nav == "🌍 Map" and st.session_state.page not in ["map", "edit_plant"]:
+        st.session_state.page = "map"
+    elif nav == "🌍 Map" and st.session_state.page == "edit_plant":
+        pass  # Keep current page (edit_plant)
+    elif nav == "🌍 Map":
         st.session_state.page = "map"
     elif nav == "➕ Add Plant":
         st.session_state.page = "add"
