@@ -158,37 +158,69 @@ if "selected_unit" not in st.session_state:
 # -------------------------
 # Sidebar navigation
 # -------------------------
-st.sidebar.title("🚚 Fleet Dashboard")
+# Dynamic title based on dataset
+if st.session_state.dataset == "PLANTS":
+    st.sidebar.title("🏭 Plants Dashboard")
+else:
+    st.sidebar.title("🚚 Fleet Dashboard")
 
-# Dataset Type Toggle (Fleet vs Plants)
+# Three-button toggle: OP | UG | Plants
 st.sidebar.markdown("---")
-st.sidebar.markdown("##### Dataset")
+st.sidebar.markdown("##### Dataset Selection")
 
-dataset_col1, dataset_col2 = st.sidebar.columns(2)
+# Display icons
+icon_col1, icon_col2, icon_col3 = st.sidebar.columns(3)
+with icon_col1:
+    st.markdown("<div style='text-align: center; font-size: 24px;'>⛏️</div>", unsafe_allow_html=True)
+with icon_col2:
+    st.markdown("<div style='text-align: center; font-size: 24px;'>🚇</div>", unsafe_allow_html=True)
+with icon_col3:
+    st.markdown("<div style='text-align: center; font-size: 24px;'>🏭</div>", unsafe_allow_html=True)
 
-with dataset_col1:
-    fleet_selected = st.session_state.dataset == "FLEET"
+# Three toggle buttons
+toggle_col1, toggle_col2, toggle_col3 = st.sidebar.columns(3)
+
+with toggle_col1:
+    op_selected = st.session_state.dataset == "FLEET" and st.session_state.fleet_type == "OP"
     if st.button(
-        f"🚛 Fleet",
+        "OP",
         use_container_width=True,
-        type="primary" if fleet_selected else "secondary",
-        key="btn_dataset_fleet"
+        type="primary" if op_selected else "secondary",
+        key="btn_op"
     ):
-        if st.session_state.dataset != "FLEET":
+        if st.session_state.dataset != "FLEET" or st.session_state.fleet_type != "OP":
             st.session_state.dataset = "FLEET"
+            st.session_state.fleet_type = "OP"
             st.session_state.selected_unit = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
             st.rerun()
 
-with dataset_col2:
+with toggle_col2:
+    ug_selected = st.session_state.dataset == "FLEET" and st.session_state.fleet_type == "UG"
+    if st.button(
+        "UG",
+        use_container_width=True,
+        type="primary" if ug_selected else "secondary",
+        key="btn_ug"
+    ):
+        if st.session_state.dataset != "FLEET" or st.session_state.fleet_type != "UG":
+            st.session_state.dataset = "FLEET"
+            st.session_state.fleet_type = "UG"
+            st.session_state.selected_unit = None
+            st.session_state.page = "map"
+            if "map_selected_unit" in st.session_state:
+                del st.session_state.map_selected_unit
+            st.rerun()
+
+with toggle_col3:
     plants_selected = st.session_state.dataset == "PLANTS"
     if st.button(
-        f"🏭 Plants",
+        "Plants",
         use_container_width=True,
         type="primary" if plants_selected else "secondary",
-        key="btn_dataset_plants"
+        key="btn_plants"
     ):
         if st.session_state.dataset != "PLANTS":
             st.session_state.dataset = "PLANTS"
@@ -198,49 +230,12 @@ with dataset_col2:
                 del st.session_state.map_selected_unit
             st.rerun()
 
-# Fleet Type Toggle Switch (only for FLEET dataset)
+# Show current selection info
 if st.session_state.dataset == "FLEET":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("##### Fleet Type")
-
-    # Create toggle buttons for OP/UG
-    toggle_col1, toggle_col2 = st.sidebar.columns(2)
-
-    with toggle_col1:
-        op_selected = st.session_state.fleet_type == "OP"
-        if st.button(
-            f"⛏️ OP",
-            use_container_width=True,
-            type="primary" if op_selected else "secondary",
-            key="btn_op"
-        ):
-            if st.session_state.fleet_type != "OP":
-                st.session_state.fleet_type = "OP"
-                st.session_state.selected_unit = None
-                st.session_state.page = "map"
-                if "map_selected_unit" in st.session_state:
-                    del st.session_state.map_selected_unit
-                st.rerun()
-
-    with toggle_col2:
-        ug_selected = st.session_state.fleet_type == "UG"
-        if st.button(
-            f"🚇 UG",
-            use_container_width=True,
-            type="primary" if ug_selected else "secondary",
-            key="btn_ug"
-        ):
-            if st.session_state.fleet_type != "UG":
-                st.session_state.fleet_type = "UG"
-                st.session_state.selected_unit = None
-                st.session_state.page = "map"
-                if "map_selected_unit" in st.session_state:
-                    del st.session_state.map_selected_unit
-                st.rerun()
-
-    # Show current fleet info
     current_fleet = FLEET_CONFIG[st.session_state.fleet_type]
     st.sidebar.caption(f"📂 {current_fleet['name']} Fleet")
+else:
+    st.sidebar.caption(f"📂 Plants Database")
 
 # Determine the correct radio index based on current page
 # details and edit_one pages should keep Map selected
