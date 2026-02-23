@@ -154,6 +154,8 @@ if "page" not in st.session_state:
     st.session_state.page = "map"
 if "selected_unit" not in st.session_state:
     st.session_state.selected_unit = None
+if "selected_plant" not in st.session_state:
+    st.session_state.selected_plant = None
 
 # -------------------------
 # Sidebar navigation
@@ -192,9 +194,12 @@ with toggle_col1:
             st.session_state.dataset = "FLEET"
             st.session_state.fleet_type = "OP"
             st.session_state.selected_unit = None
+            st.session_state.selected_plant = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
+            if "map_selected_plant" in st.session_state:
+                del st.session_state.map_selected_plant
             st.rerun()
 
 with toggle_col2:
@@ -209,9 +214,12 @@ with toggle_col2:
             st.session_state.dataset = "FLEET"
             st.session_state.fleet_type = "UG"
             st.session_state.selected_unit = None
+            st.session_state.selected_plant = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
+            if "map_selected_plant" in st.session_state:
+                del st.session_state.map_selected_plant
             st.rerun()
 
 with toggle_col3:
@@ -225,9 +233,12 @@ with toggle_col3:
         if st.session_state.dataset != "PLANTS":
             st.session_state.dataset = "PLANTS"
             st.session_state.selected_unit = None
+            st.session_state.selected_plant = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
+            if "map_selected_plant" in st.session_state:
+                del st.session_state.map_selected_plant
             st.rerun()
 
 # Show current selection info
@@ -371,7 +382,8 @@ else:  # PLANTS
     k1.metric("Total Plants", len(filtered))
     k2.metric("Countries", int(filtered["Country"].nunique()))
     k3.metric("Regions", int(filtered["Region"].nunique()))
-    active_count = int((filtered["Status"].astype(str).str.lower().isin(["operative", "active"])).sum())
+    # Count plants with "working" in status as active
+    active_count = int(filtered["Status"].astype(str).str.lower().str.contains("working", na=False).sum())
     k4.metric("Active", active_count)
 st.markdown("---")
 
@@ -385,6 +397,55 @@ if st.session_state.page == "map":
         st.title(f"{fleet_icon} {fleet_name} Fleet Map")
     else:  # PLANTS
         st.title("🏭 Plants Map")
+        
+        # For PLANTS: Show two charts FIRST (above map)
+        st.subheader("📊 Quick Analytics")
+        
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            # Chart 1: Plants per Region
+            region_counts = filtered["Region"].value_counts().sort_index()
+            
+            fig1 = go.Figure(data=[
+                go.Bar(
+                    x=region_counts.index,
+                    y=region_counts.values,
+                    marker_color='lightblue',
+                    text=region_counts.values,
+                    textposition='auto'
+                )
+            ])
+            fig1.update_layout(
+                title="Plants per Region",
+                xaxis_title="Region",
+                yaxis_title="Number of Plants",
+                height=300
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with chart_col2:
+            # Chart 2: Plants per Country
+            country_counts = filtered["Country"].value_counts().head(10)  # Top 10 countries
+            
+            fig2 = go.Figure(data=[
+                go.Bar(
+                    x=country_counts.index,
+                    y=country_counts.values,
+                    marker_color='lightgreen',
+                    text=country_counts.values,
+                    textposition='auto'
+                )
+            ])
+            fig2.update_layout(
+                title="Plants per Country (Top 10)",
+                xaxis_title="Country",
+                yaxis_title="Number of Plants",
+                height=300
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        st.markdown("---")
 
     map_df = filtered.copy()
     map_df["LAT"] = map_df["LAT"].apply(to_float)
@@ -457,7 +518,7 @@ if st.session_state.page == "map":
             ).add_to(cluster)
     
     else:  # PLANTS
-        # Plants markers (leaf/industry icon)
+        # Plants markers (industry icon)
         for _, r in map_df.iterrows():
             operation = safe_str(r.get("Operation"))
             country = safe_str(r.get("Country"))
@@ -467,12 +528,16 @@ if st.session_state.page == "map":
             capacity = safe_str(r.get("Capacity"))
             
             # Determine marker color based on status
-            if status in ["operative", "active"]:
+            # Green for "working", Red for installing/pending/on hold
+            if "working" in status:
                 marker_color = "green"
                 status_text = "Active"
-            else:
+            elif any(x in status for x in ["installing", "pending", "on hold"]):
                 marker_color = "red"
                 status_text = "Inactive"
+            else:
+                marker_color = "orange"
+                status_text = "Unknown"
             
             # Simple popup - no buttons, just info
             popup_html = f"""
@@ -511,7 +576,7 @@ if st.session_state.page == "map":
         returned_objects=["last_object_clicked_tooltip"]
     )
 
-    # Check if a marker was clicked - update selection (only for Fleet)
+    # Check if a marker was clicked - update selection
     if st.session_state.dataset == "FLEET":
         vehicle_list = sorted(map_df["Unit"].astype(str).unique().tolist())
         
@@ -522,58 +587,18 @@ if st.session_state.page == "map":
                 if st.session_state.get("map_selected_unit") != clicked_unit:
                     st.session_state.map_selected_unit = clicked_unit
                     st.rerun()
+    else:  # PLANTS
+        plant_list = sorted(map_df["Operation"].astype(str).unique().tolist())
+        
+        if map_output and map_output.get("last_object_clicked_tooltip"):
+            clicked_plant = map_output["last_object_clicked_tooltip"]
+            if clicked_plant in plant_list:
+                # Only rerun if the selection actually changed
+                if st.session_state.get("map_selected_plant") != clicked_plant:
+                    st.session_state.map_selected_plant = clicked_plant
+                    st.rerun()
     
     st.markdown("---")
-    
-    # For PLANTS: Show two charts (Plants per Region, Plants per Country)
-    if st.session_state.dataset == "PLANTS":
-        st.subheader("📊 Plants Analytics")
-        
-        chart_col1, chart_col2 = st.columns(2)
-        
-        with chart_col1:
-            # Chart 1: Plants per Region
-            region_counts = map_df["Region"].value_counts().sort_index()
-            
-            fig1 = go.Figure(data=[
-                go.Bar(
-                    x=region_counts.index,
-                    y=region_counts.values,
-                    marker_color='lightblue',
-                    text=region_counts.values,
-                    textposition='auto'
-                )
-            ])
-            fig1.update_layout(
-                title="Plants per Region",
-                xaxis_title="Region",
-                yaxis_title="Number of Plants",
-                height=400
-            )
-            st.plotly_chart(fig1, use_container_width=True)
-        
-        with chart_col2:
-            # Chart 2: Plants per Country
-            country_counts = map_df["Country"].value_counts().head(10)  # Top 10 countries
-            
-            fig2 = go.Figure(data=[
-                go.Bar(
-                    x=country_counts.index,
-                    y=country_counts.values,
-                    marker_color='lightgreen',
-                    text=country_counts.values,
-                    textposition='auto'
-                )
-            ])
-            fig2.update_layout(
-                title="Plants per Country (Top 10)",
-                xaxis_title="Country",
-                yaxis_title="Number of Plants",
-                height=400
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-        
-        st.markdown("---")
     
     # Check if filters are active (region or country)
     filters_active = bool(f_region) or bool(f_country)
@@ -619,7 +644,7 @@ if st.session_state.page == "map":
                 else:
                     return ['background-color: #f8d7da'] * len(row)
             else:  # PLANTS
-                if status_val in ['operative', 'active']:
+                if 'working' in status_val:
                     return ['background-color: #d4edda'] * len(row)
                 else:
                     return ['background-color: #f8d7da'] * len(row)
@@ -631,64 +656,109 @@ if st.session_state.page == "map":
         )
     
     else:
-        # Show FULL vehicle details below if a vehicle is clicked (no filters active)
-        if "map_selected_unit" in st.session_state and st.session_state.map_selected_unit:
-            selected_vehicle = st.session_state.map_selected_unit
-            detail_row = df[df["Unit"].astype(str) == selected_vehicle]
-            if not detail_row.empty:
-                r = detail_row.iloc[0]
-                
-                st.subheader(f"📋 Vehicle Details: {selected_vehicle}")
-                
-                # Status indicator
-                status_val = safe_str(r.get("Status")).lower()
-                if status_val == "operative":
-                    st.success("● Status: Operative")
-                else:
-                    st.error("● Status: Non-Operative")
-                
-                # Details in columns
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown("**📍 Location**")
-                    st.write(f"**Region:** {safe_str(r.get('Region'))}")
-                    st.write(f"**Country:** {safe_str(r.get('Country'))}")
-                    st.write(f"**Coordinates:** {safe_str(r.get('LAT'))}, {safe_str(r.get('LON'))}")
-                
-                with c2:
-                    st.markdown("**🚛 Vehicle Info**")
-                    st.write(f"**Unit:** {safe_str(r.get('Unit'))}")
-                    st.write(f"**Type:** {safe_str(r.get('Type'))}")
-                    st.write(f"**Product:** {safe_str(r.get('Product'))}")
-                    st.write(f"**Capacity:** {safe_str(r.get('Capacity (MT)'))} MT")
-                
-                with c3:
-                    st.markdown("**📅 Details**")
-                    st.write(f"**Chassis Year:** {format_year(r.get('Chassis Year'))}")
-                    st.write(f"**Body Year:** {format_year(r.get('Body Year'))}")
-                    st.write(f"**Condition:** {safe_str(r.get('Condition'))}")
-                    st.write(f"**Axles:** {safe_str(r.get('Axles'))}")
-                
-                st.markdown("---")
-                
-                d1, d2 = st.columns(2)
-                with d1:
-                    st.markdown("**🏭 Operation**")
-                    st.write(f"**Project:** {safe_str(r.get('Key Account'))}")
-                    st.write(f"**Operation:** {safe_str(r.get('Operation'))}")
-                
-                with d2:
-                    st.markdown("**⚙️ Engine**")
-                    st.write(f"**Engine Type:** {safe_str(r.get('Engine Type'))}")
-                    st.write(f"**Engine Number:** {safe_str(r.get('Engine Number'))}")
-                    st.write(f"**Chassis:** {safe_str(r.get('Chassis'))}")
-                
-                # Edit button
-                st.markdown("---")
-                if st.button("✏️ Edit Vehicle", use_container_width=True, type="primary"):
-                    st.session_state.selected_unit = selected_vehicle
-                    st.session_state.page = "edit_one"
-                    st.rerun()
+        # Show FULL details below if an item is clicked (no filters active)
+        if st.session_state.dataset == "FLEET":
+            if "map_selected_unit" in st.session_state and st.session_state.map_selected_unit:
+                selected_vehicle = st.session_state.map_selected_unit
+                detail_row = df[df["Unit"].astype(str) == selected_vehicle]
+                if not detail_row.empty:
+                    r = detail_row.iloc[0]
+                    
+                    st.subheader(f"📋 Vehicle Details: {selected_vehicle}")
+                    
+                    # Status indicator
+                    status_val = safe_str(r.get("Status")).lower()
+                    if status_val == "operative":
+                        st.success("● Status: Operative")
+                    else:
+                        st.error("● Status: Non-Operative")
+                    
+                    # Details in columns
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown("**📍 Location**")
+                        st.write(f"**Region:** {safe_str(r.get('Region'))}")
+                        st.write(f"**Country:** {safe_str(r.get('Country'))}")
+                        st.write(f"**Coordinates:** {safe_str(r.get('LAT'))}, {safe_str(r.get('LON'))}")
+                    
+                    with c2:
+                        st.markdown("**🚛 Vehicle Info**")
+                        st.write(f"**Unit:** {safe_str(r.get('Unit'))}")
+                        st.write(f"**Type:** {safe_str(r.get('Type'))}")
+                        st.write(f"**Product:** {safe_str(r.get('Product'))}")
+                        st.write(f"**Capacity:** {safe_str(r.get('Capacity (MT)'))} MT")
+                    
+                    with c3:
+                        st.markdown("**📅 Details**")
+                        st.write(f"**Chassis Year:** {format_year(r.get('Chassis Year'))}")
+                        st.write(f"**Body Year:** {format_year(r.get('Body Year'))}")
+                        st.write(f"**Condition:** {safe_str(r.get('Condition'))}")
+                        st.write(f"**Axles:** {safe_str(r.get('Axles'))}")
+                    
+                    st.markdown("---")
+                    
+                    d1, d2 = st.columns(2)
+                    with d1:
+                        st.markdown("**🏭 Operation**")
+                        st.write(f"**Project:** {safe_str(r.get('Key Account'))}")
+                        st.write(f"**Operation:** {safe_str(r.get('Operation'))}")
+                    
+                    with d2:
+                        st.markdown("**⚙️ Engine**")
+                        st.write(f"**Engine Type:** {safe_str(r.get('Engine Type'))}")
+                        st.write(f"**Engine Number:** {safe_str(r.get('Engine Number'))}")
+                        st.write(f"**Chassis:** {safe_str(r.get('Chassis'))}")
+                    
+                    # Edit button
+                    st.markdown("---")
+                    if st.button("✏️ Edit Vehicle", use_container_width=True, type="primary"):
+                        st.session_state.selected_unit = selected_vehicle
+                        st.session_state.page = "edit_one"
+                        st.rerun()
+        
+        else:  # PLANTS dataset
+            if "map_selected_plant" in st.session_state and st.session_state.map_selected_plant:
+                selected_plant = st.session_state.map_selected_plant
+                detail_row = df[df["Operation"].astype(str) == selected_plant]
+                if not detail_row.empty:
+                    r = detail_row.iloc[0]
+                    
+                    st.subheader(f"📋 Plant Details: {selected_plant}")
+                    
+                    # Status indicator
+                    status_val = safe_str(r.get("Status")).lower()
+                    if "working" in status_val:
+                        st.success("● Status: Active (Working)")
+                    else:
+                        st.error(f"● Status: {safe_str(r.get('Status'))}")
+                    
+                    # Details in columns
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown("**📍 Location**")
+                        st.write(f"**Region:** {safe_str(r.get('Region'))}")
+                        st.write(f"**Country:** {safe_str(r.get('Country'))}")
+                        st.write(f"**Coordinates:** {safe_str(r.get('LAT'))}, {safe_str(r.get('LON'))}")
+                    
+                    with c2:
+                        st.markdown("**🏭 Plant Info**")
+                        st.write(f"**Operation:** {safe_str(r.get('Operation'))}")
+                        st.write(f"**Type:** {safe_str(r.get('Type'))}")
+                        st.write(f"**Product:** {safe_str(r.get('Product'))}")
+                        st.write(f"**Capacity:** {safe_str(r.get('Capacity'))}")
+                    
+                    with c3:
+                        st.markdown("**📦 Production Details**")
+                        st.write(f"**Formulation:** {safe_str(r.get('Formulation'))}")
+                        st.write(f"**Raw Material:** {safe_str(r.get('Raw Material'))}")
+                        st.write(f"**Status:** {safe_str(r.get('Status'))}")
+                    
+                    # Edit button
+                    st.markdown("---")
+                    if st.button("✏️ Edit Plant", use_container_width=True, type="primary"):
+                        st.session_state.selected_plant = selected_plant
+                        st.session_state.page = "edit_plant"
+                        st.rerun()
 
 # =========================
 # PAGE: DETAILS (read-only) + Edit button
@@ -864,6 +934,95 @@ if st.session_state.page == "edit_one":
 
             st.success("Saved ✅ Updated successfully.")
             st.session_state.page = "details"
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# =========================
+# PAGE: EDIT PLANT
+# =========================
+if st.session_state.page == "edit_plant":
+    operation = st.session_state.get("selected_plant")
+    st.title(f"✏️ Edit Plant: {operation}")
+
+    if not operation:
+        st.info("No plant selected.")
+        st.stop()
+
+    row_df = df[df["Operation"].astype(str) == str(operation)]
+    if row_df.empty:
+        st.warning("Plant not found.")
+        st.stop()
+
+    r = row_df.iloc[0]
+
+    # Action buttons at top
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 4])
+    with btn_col1:
+        back_clicked = st.button("⬅ Cancel", use_container_width=True)
+    
+    st.markdown("---")
+
+    with st.form("edit_plant_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            REGION = st.text_input("Region", value=safe_str(r["Region"]))
+            COUNTRY = st.text_input("Country", value=safe_str(r["Country"]))
+            OPERATION_DISP = st.text_input("Operation", value=safe_str(r["Operation"]), disabled=True, help="Operation cannot be changed")
+            PRODUCT = st.text_input("Product", value=safe_str(r["Product"]))
+        with c2:
+            TYPE = st.text_input("Type", value=safe_str(r["Type"]))
+            CAPACITY = st.text_input("Capacity", value=safe_str(r["Capacity"]))
+            FORMULATION = st.text_input("Formulation", value=safe_str(r["Formulation"]))
+        with c3:
+            RAW_MATERIAL = st.text_input("Raw Material", value=safe_str(r["Raw Material"]))
+            STATUS = st.text_input("Status", value=safe_str(r["Status"]))
+
+        st.markdown("### Coordinates")
+        e1, e2 = st.columns(2)
+        with e1:
+            LAT = st.text_input("LAT", value=safe_str(r["LAT"]))
+        with e2:
+            LON = st.text_input("LON", value=safe_str(r["LON"]))
+
+        save_btn = st.form_submit_button("💾 Save changes", type="primary", use_container_width=True)
+
+    if back_clicked:
+        st.session_state.page = "map"
+        if "map_selected_plant" in st.session_state:
+            del st.session_state.map_selected_plant
+        st.rerun()
+
+    if save_btn:
+        try:
+            updates = {
+                "Operation": operation,  # Keep the original operation name
+                "Region": REGION,
+                "Country": COUNTRY,
+                "Product": PRODUCT,
+                "Type": TYPE,
+                "Capacity": CAPACITY,
+                "Formulation": FORMULATION,
+                "Raw Material": RAW_MATERIAL,
+                "Status": STATUS,
+                "LAT": LAT,
+                "LON": LON,
+            }
+
+            if USE_SUPABASE:
+                # Save to Supabase database
+                upsert_plant_db(updates)
+            else:
+                # For local dev
+                pass
+            
+            reload_data()
+
+            st.success("Saved ✅ Plant updated successfully.")
+            st.session_state.page = "map"
+            if "map_selected_plant" in st.session_state:
+                del st.session_state.map_selected_plant
             st.rerun()
 
         except Exception as e:
@@ -1405,3 +1564,4 @@ if st.session_state.page == "download":
         )
         
         st.caption("This will download all plants data including all columns.")
+
