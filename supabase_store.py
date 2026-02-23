@@ -222,3 +222,143 @@ def delete_vehicle_db(fleet_type: str, unit: str) -> None:
         "unit", str(unit).strip()
     ).execute()
 
+
+# ==============================================
+# PLANTS DATA ACCESS FUNCTIONS
+# ==============================================
+
+# Plants table and column mappings
+PLANTS_TABLE = "plants"
+
+PLANTS_APP_TO_DB = {
+    "Region": "region",
+    "Country": "country",
+    "Operation": "operation",
+    "Product": "product",
+    "Type": "type",
+    "Capacity": "capacity",
+    "Formulation": "formulation",
+    "Raw Material": "raw_material",
+    "Status": "status",
+    "LAT": "lat",
+    "LON": "lon",
+}
+
+PLANTS_DB_TO_APP = {v: k for k, v in PLANTS_APP_TO_DB.items()}
+
+# Columns that should be floats for plants
+PLANTS_FLOAT_COLUMNS = {"Capacity", "LAT", "LON"}
+
+
+def _convert_plants_value_for_db(app_col: str, value):
+    """
+    Convert a plant value to appropriate type for database.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (ValueError, TypeError):
+        pass
+    
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    
+    str_val = str(value).strip()
+    
+    # Float columns (capacity, coordinates)
+    if app_col in PLANTS_FLOAT_COLUMNS:
+        try:
+            return float(str_val)
+        except (ValueError, TypeError):
+            return None
+    
+    return str_val
+
+
+def load_plants_db(app_columns: list[str]) -> pd.DataFrame:
+    """
+    Load plants data from Supabase.
+    Returns DataFrame with app column names in correct order.
+    
+    Args:
+        app_columns: list of expected column names (from utils.PLANTS_COLUMNS)
+    
+    Returns:
+        DataFrame with app column names
+    """
+    sb = get_supabase_client()
+    
+    response = (
+        sb.table(PLANTS_TABLE)
+        .select("*")
+        .order("operation")
+        .execute()
+    )
+    
+    rows = response.data or []
+    
+    if not rows:
+        return pd.DataFrame(columns=app_columns)
+    
+    df = pd.DataFrame(rows)
+    
+    # Drop DB-only columns
+    for drop_col in ["id", "updated_at"]:
+        if drop_col in df.columns:
+            df = df.drop(columns=[drop_col])
+    
+    # Rename DB columns to app column names
+    df = df.rename(columns=PLANTS_DB_TO_APP)
+    
+    # Ensure all expected columns exist and in correct order
+    for col in app_columns:
+        if col not in df.columns:
+            df[col] = pd.NA
+    
+    return df[app_columns]
+
+
+def upsert_plant_db(row_app: dict) -> None:
+    """
+    Upsert a plant row in Supabase.
+    Uses operation as the unique identifier.
+    
+    Args:
+        row_app: dict with app column names (e.g., {"Operation": "Mine X", "Region": "AFRICA", ...})
+    """
+    sb = get_supabase_client()
+    
+    operation = str(row_app.get("Operation", "")).strip()
+    if not operation:
+        raise ValueError("Operation is required")
+    
+    # Build payload with DB column names
+    payload = {"operation": operation}
+    
+    for app_col, db_col in PLANTS_APP_TO_DB.items():
+        if app_col in row_app:
+            value = row_app[app_col]
+            payload[db_col] = _convert_plants_value_for_db(app_col, value)
+    
+    # Upsert with conflict on operation
+    sb.table(PLANTS_TABLE).upsert(
+        payload,
+        on_conflict="operation"
+    ).execute()
+
+
+def delete_plant_db(operation: str) -> None:
+    """
+    Delete a plant from Supabase.
+    
+    Args:
+        operation: the plant operation identifier
+    """
+    sb = get_supabase_client()
+    
+    sb.table(PLANTS_TABLE).delete().eq(
+        "operation", str(operation).strip()
+    ).execute()
+
