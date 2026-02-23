@@ -8,8 +8,14 @@ import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 
-from utils import load_fleet_excel, save_fleet_excel, update_vehicle_by_unit, COLUMNS
-from supabase_store import has_supabase_secrets, load_fleet_db, upsert_vehicle_db
+from utils import load_fleet_excel, save_fleet_excel, update_vehicle_by_unit, COLUMNS, PLANTS_COLUMNS
+from supabase_store import (
+    has_supabase_secrets, 
+    load_fleet_db, 
+    upsert_vehicle_db,
+    load_plants_db,
+    upsert_plant_db
+)
 
 # Check if Supabase is configured (for production vs local dev)
 USE_SUPABASE = has_supabase_secrets()
@@ -18,14 +24,24 @@ st.set_page_config(page_title="Fleet Dashboard", page_icon="🚛", layout="wide"
 
 # Fleet type configuration
 FLEET_CONFIG = {
-    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": ""},
-    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": ""}
+    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": "⛏️"},
+    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": "🚇"}
 }
 SHEET_NAME = "Fleet"
+
+# Dataset configuration (Fleet vs Plants)
+DATASET_CONFIG = {
+    "FLEET": {"name": "Fleet", "icon": "🚛"},
+    "PLANTS": {"name": "Plants", "icon": "🏭"}
+}
 
 # Initialize fleet type in session state
 if "fleet_type" not in st.session_state:
     st.session_state.fleet_type = "OP"
+
+# Initialize dataset type in session state
+if "dataset" not in st.session_state:
+    st.session_state.dataset = "FLEET"
 
 # Get current excel path based on fleet type
 def get_excel_path():
@@ -35,14 +51,24 @@ def get_excel_path():
 # Cache + helpers
 # -------------------------
 @st.cache_data(show_spinner=False)
-def get_data(fleet_type: str):
-    if USE_SUPABASE:
-        # Load from Supabase database
-        return load_fleet_db(fleet_type, COLUMNS)
-    else:
-        # Fallback to Excel for local development
-        excel_path = FLEET_CONFIG[fleet_type]["path"]
-        return load_fleet_excel(excel_path, sheet_name=SHEET_NAME)
+def get_data(dataset: str, fleet_type: str = None):
+    """
+    Load data based on dataset type.
+    For FLEET: requires fleet_type ("OP" or "UG")
+    For PLANTS: fleet_type is ignored
+    """
+    if dataset == "FLEET":
+        if USE_SUPABASE:
+            return load_fleet_db(fleet_type, COLUMNS)
+        else:
+            excel_path = FLEET_CONFIG[fleet_type]["path"]
+            return load_fleet_excel(excel_path, sheet_name=SHEET_NAME)
+    elif dataset == "PLANTS":
+        if USE_SUPABASE:
+            return load_plants_db(PLANTS_COLUMNS)
+        else:
+            # For local dev, could load from Excel if needed
+            return pd.DataFrame(columns=PLANTS_COLUMNS)
 
 def reload_data():
     st.cache_data.clear()
@@ -104,7 +130,7 @@ def format_year(v):
 # Load data
 # -------------------------
 try:
-    df = get_data(st.session_state.fleet_type)
+    df = get_data(st.session_state.dataset, st.session_state.fleet_type)
 except Exception as e:
     st.error(f"Error loading data: {e}")
     st.info("Check your database connection or Streamlit secrets.")
@@ -134,48 +160,87 @@ if "selected_unit" not in st.session_state:
 # -------------------------
 st.sidebar.title("🚚 Fleet Dashboard")
 
-# Fleet Type Toggle Switch
+# Dataset Type Toggle (Fleet vs Plants)
 st.sidebar.markdown("---")
-st.sidebar.markdown("##### Fleet Type")
+st.sidebar.markdown("##### Dataset")
 
-# Create toggle buttons for OP/UG
-toggle_col1, toggle_col2 = st.sidebar.columns(2)
+dataset_col1, dataset_col2 = st.sidebar.columns(2)
 
-with toggle_col1:
-    op_selected = st.session_state.fleet_type == "OP"
+with dataset_col1:
+    fleet_selected = st.session_state.dataset == "FLEET"
     if st.button(
-        f" OP",
+        f"🚛 Fleet",
         use_container_width=True,
-        type="primary" if op_selected else "secondary",
-        key="btn_op"
+        type="primary" if fleet_selected else "secondary",
+        key="btn_dataset_fleet"
     ):
-        if st.session_state.fleet_type != "OP":
-            st.session_state.fleet_type = "OP"
+        if st.session_state.dataset != "FLEET":
+            st.session_state.dataset = "FLEET"
             st.session_state.selected_unit = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
             st.rerun()
 
-with toggle_col2:
-    ug_selected = st.session_state.fleet_type == "UG"
+with dataset_col2:
+    plants_selected = st.session_state.dataset == "PLANTS"
     if st.button(
-        f" UG",
+        f"🏭 Plants",
         use_container_width=True,
-        type="primary" if ug_selected else "secondary",
-        key="btn_ug"
+        type="primary" if plants_selected else "secondary",
+        key="btn_dataset_plants"
     ):
-        if st.session_state.fleet_type != "UG":
-            st.session_state.fleet_type = "UG"
+        if st.session_state.dataset != "PLANTS":
+            st.session_state.dataset = "PLANTS"
             st.session_state.selected_unit = None
             st.session_state.page = "map"
             if "map_selected_unit" in st.session_state:
                 del st.session_state.map_selected_unit
             st.rerun()
 
-# Show current fleet info
-current_fleet = FLEET_CONFIG[st.session_state.fleet_type]
-st.sidebar.caption(f"📂 {current_fleet['name']} Fleet")
+# Fleet Type Toggle Switch (only for FLEET dataset)
+if st.session_state.dataset == "FLEET":
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("##### Fleet Type")
+
+    # Create toggle buttons for OP/UG
+    toggle_col1, toggle_col2 = st.sidebar.columns(2)
+
+    with toggle_col1:
+        op_selected = st.session_state.fleet_type == "OP"
+        if st.button(
+            f"⛏️ OP",
+            use_container_width=True,
+            type="primary" if op_selected else "secondary",
+            key="btn_op"
+        ):
+            if st.session_state.fleet_type != "OP":
+                st.session_state.fleet_type = "OP"
+                st.session_state.selected_unit = None
+                st.session_state.page = "map"
+                if "map_selected_unit" in st.session_state:
+                    del st.session_state.map_selected_unit
+                st.rerun()
+
+    with toggle_col2:
+        ug_selected = st.session_state.fleet_type == "UG"
+        if st.button(
+            f"🚇 UG",
+            use_container_width=True,
+            type="primary" if ug_selected else "secondary",
+            key="btn_ug"
+        ):
+            if st.session_state.fleet_type != "UG":
+                st.session_state.fleet_type = "UG"
+                st.session_state.selected_unit = None
+                st.session_state.page = "map"
+                if "map_selected_unit" in st.session_state:
+                    del st.session_state.map_selected_unit
+                st.rerun()
+
+    # Show current fleet info
+    current_fleet = FLEET_CONFIG[st.session_state.fleet_type]
+    st.sidebar.caption(f"📂 {current_fleet['name']} Fleet")
 
 # Determine the correct radio index based on current page
 # details and edit_one pages should keep Map selected
@@ -191,25 +256,44 @@ elif current_page == "download":
 else:
     nav_index = 2
 
+# Menu options depend on dataset type
+if st.session_state.dataset == "FLEET":
+    menu_options = ["🌍 Map", "📊 Stats", "➕ Add Vehicle", "📥 Download Fleet"]
+else:  # PLANTS
+    menu_options = ["🌍 Map", "➕ Add Plant", "📥 Download Plants"]
+    # Adjust nav_index for plants (no stats page)
+    if current_page == "add":
+        nav_index = 1
+    elif current_page == "download":
+        nav_index = 2
+
 nav = st.sidebar.radio(
     "Menu",
-    ["🌍 Map", "📊 Stats", "➕ Add Vehicle", "📥 Download Fleet"],
+    menu_options,
     index=nav_index
 )
 
 # Only change page if user clicks a different menu item
-if nav == "🌍 Map" and st.session_state.page not in ["map", "details", "edit_one"]:
-    st.session_state.page = "map"
-elif nav == "🌍 Map" and st.session_state.page in ["details", "edit_one"]:
-    pass  # Keep current page (details or edit)
-elif nav == "🌍 Map":
-    st.session_state.page = "map"
-elif nav == "📊 Stats":
-    st.session_state.page = "stats"
-elif nav == "➕ Add Vehicle":
-    st.session_state.page = "add"
-elif nav == "📥 Download Fleet":
-    st.session_state.page = "download"
+if st.session_state.dataset == "FLEET":
+    if nav == "🌍 Map" and st.session_state.page not in ["map", "details", "edit_one"]:
+        st.session_state.page = "map"
+    elif nav == "🌍 Map" and st.session_state.page in ["details", "edit_one"]:
+        pass  # Keep current page (details or edit)
+    elif nav == "🌍 Map":
+        st.session_state.page = "map"
+    elif nav == "📊 Stats":
+        st.session_state.page = "stats"
+    elif nav == "➕ Add Vehicle":
+        st.session_state.page = "add"
+    elif nav == "📥 Download Fleet":
+        st.session_state.page = "download"
+else:  # PLANTS
+    if nav == "🌍 Map":
+        st.session_state.page = "map"
+    elif nav == "➕ Add Plant":
+        st.session_state.page = "add"
+    elif nav == "📥 Download Plants":
+        st.session_state.page = "download"
 
 # -------------------------
 # Filters (only for Map page)
@@ -218,38 +302,56 @@ if st.session_state.page in ["map", "details", "edit_one"]:
     st.sidebar.markdown("---")
     st.sidebar.caption("Filters")
 
-    regions = sorted([x for x in df["Region"].dropna().unique()])
-    countries = sorted([x for x in df["Country"].dropna().unique()])
-    statuses = sorted([x for x in df["Status"].dropna().unique()])
-    vehicle_types = sorted([x for x in df["Type"].dropna().unique()])
+    if st.session_state.dataset == "FLEET":
+        # Fleet filters
+        regions = sorted([x for x in df["Region"].dropna().unique()])
+        countries = sorted([x for x in df["Country"].dropna().unique()])
+        statuses = sorted([x for x in df["Status"].dropna().unique()])
+        vehicle_types = sorted([x for x in df["Type"].dropna().unique()])
 
-    f_region = st.sidebar.multiselect("Region", regions)
-    f_country = st.sidebar.multiselect("Country", countries)
-    f_status = st.sidebar.multiselect("Status", statuses)
-    f_type = st.sidebar.multiselect("Type", vehicle_types)
+        f_region = st.sidebar.multiselect("Region", regions)
+        f_country = st.sidebar.multiselect("Country", countries)
+        f_status = st.sidebar.multiselect("Status", statuses)
+        f_type = st.sidebar.multiselect("Type", vehicle_types)
+        f_operation = []  # Not used for fleet
+    else:  # PLANTS
+        # Plants filters: Region, Country, Operation, Status
+        regions = sorted([x for x in df["Region"].dropna().unique()])
+        countries = sorted([x for x in df["Country"].dropna().unique()])
+        operations = sorted([x for x in df["Operation"].dropna().unique()])
+        statuses = sorted([x for x in df["Status"].dropna().unique()])
+
+        f_region = st.sidebar.multiselect("Region", regions)
+        f_country = st.sidebar.multiselect("Country", countries)
+        f_operation = st.sidebar.multiselect("Operation", operations)
+        f_status = st.sidebar.multiselect("Status", statuses)
+        f_type = []  # Not used for plants
 else:
     f_region = []
     f_country = []
     f_status = []
     f_type = []
+    f_operation = []
 
-# Quick search for vehicle
-st.sidebar.markdown("---")
-st.sidebar.caption("Quick Vehicle Search")
-quick_search = st.sidebar.text_input("Enter vehicle Unit", "", key="quick_search")
-if st.sidebar.button("🔍 Search Vehicle", use_container_width=True):
-    if quick_search.strip():
-        # Find exact or partial match
-        search_results = df[df["Unit"].astype(str).str.lower().str.contains(quick_search.strip().lower(), na=False)]
-        if not search_results.empty:
-            st.session_state.selected_unit = str(search_results.iloc[0]["Unit"])
-            st.session_state.page = "details"
-            st.rerun()
+# Quick search (only for Fleet dataset)
+if st.session_state.dataset == "FLEET":
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Quick Vehicle Search")
+    quick_search = st.sidebar.text_input("Enter vehicle Unit", "", key="quick_search")
+    if st.sidebar.button("🔍 Search Vehicle", use_container_width=True):
+        if quick_search.strip():
+            # Find exact or partial match
+            search_results = df[df["Unit"].astype(str).str.lower().str.contains(quick_search.strip().lower(), na=False)]
+            if not search_results.empty:
+                st.session_state.selected_unit = str(search_results.iloc[0]["Unit"])
+                st.session_state.page = "details"
+                st.rerun()
+            else:
+                st.sidebar.error("Vehicle not found")
         else:
-            st.sidebar.error("Vehicle not found")
-    else:
-        st.sidebar.warning("Enter a vehicle Unit")
+            st.sidebar.warning("Enter a vehicle Unit")
 
+# Apply filters
 filtered = df.copy()
 if f_region:
     filtered = filtered[filtered["Region"].isin(f_region)]
@@ -259,22 +361,35 @@ if f_status:
     filtered = filtered[filtered["Status"].isin(f_status)]
 if f_type:
     filtered = filtered[filtered["Type"].isin(f_type)]
+if f_operation:
+    filtered = filtered[filtered["Operation"].isin(f_operation)]
 
-# KPI row
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Vehicles", len(filtered))
-k2.metric("Countries", int(filtered["Country"].nunique()))
-k3.metric("Regions", int(filtered["Region"].nunique()))
-k4.metric("Operative", int((filtered["Status"].astype(str).str.lower() == "operative").sum()))
+# KPI row (different for Fleet vs Plants)
+if st.session_state.dataset == "FLEET":
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Vehicles", len(filtered))
+    k2.metric("Countries", int(filtered["Country"].nunique()))
+    k3.metric("Regions", int(filtered["Region"].nunique()))
+    k4.metric("Operative", int((filtered["Status"].astype(str).str.lower() == "operative").sum()))
+else:  # PLANTS
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Plants", len(filtered))
+    k2.metric("Countries", int(filtered["Country"].nunique()))
+    k3.metric("Regions", int(filtered["Region"].nunique()))
+    active_count = int((filtered["Status"].astype(str).str.lower().isin(["operative", "active"])).sum())
+    k4.metric("Active", active_count)
 st.markdown("---")
 
 # =========================
 # PAGE: MAP
 # =========================
 if st.session_state.page == "map":
-    fleet_icon = FLEET_CONFIG[st.session_state.fleet_type]["icon"]
-    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
-    st.title(f"{fleet_icon} {fleet_name} Fleet Map")
+    if st.session_state.dataset == "FLEET":
+        fleet_icon = FLEET_CONFIG[st.session_state.fleet_type]["icon"]
+        fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+        st.title(f"{fleet_icon} {fleet_name} Fleet Map")
+    else:  # PLANTS
+        st.title("🏭 Plants Map")
 
     map_df = filtered.copy()
     map_df["LAT"] = map_df["LAT"].apply(to_float)
@@ -282,7 +397,10 @@ if st.session_state.page == "map":
     map_df = map_df.dropna(subset=["LAT", "LON"]).copy()
 
     if map_df.empty:
-        st.warning("No vehicles have LAT/LON. Add coordinates to see pins.")
+        if st.session_state.dataset == "FLEET":
+            st.warning("No vehicles have LAT/LON. Add coordinates to see pins.")
+        else:
+            st.warning("No plants have LAT/LON. Add coordinates to see pins.")
         st.dataframe(filtered.head(30), use_container_width=True)
         st.stop()
 
@@ -301,45 +419,84 @@ if st.session_state.page == "map":
     cluster = MarkerCluster(spiderfyOnMaxZoom=True, showCoverageOnHover=False, disableClusteringAtZoom=10)
     cluster.add_to(m)
 
-    # Create simple popup with vehicle info
-    for _, r in map_df.iterrows():
-        unit = safe_str(r.get("Unit"))
-        year = safe_str(r.get("Body Year"))
-        condition = safe_str(r.get("Condition"))
-        project = safe_str(r.get("Key Account"))
-        v_type = safe_str(r.get("Type"))
-        status = safe_str(r.get("Status")).lower()
-        
-        # Determine marker color based on status
-        if status == "operative":
-            marker_color = "green"
-            status_text = "Operative"
-        elif status in ["", "unknown", "other"]:
-            marker_color = "orange"
-            status_text = "Other"
-        else:
-            marker_color = "red"
-            status_text = "Non-Operative"
+    # Create markers based on dataset type
+    if st.session_state.dataset == "FLEET":
+        # Fleet markers (truck icon)
+        for _, r in map_df.iterrows():
+            unit = safe_str(r.get("Unit"))
+            year = safe_str(r.get("Body Year"))
+            condition = safe_str(r.get("Condition"))
+            project = safe_str(r.get("Key Account"))
+            v_type = safe_str(r.get("Type"))
+            status = safe_str(r.get("Status")).lower()
+            
+            # Determine marker color based on status
+            if status == "operative":
+                marker_color = "green"
+                status_text = "Operative"
+            elif status in ["", "unknown", "other"]:
+                marker_color = "orange"
+                status_text = "Other"
+            else:
+                marker_color = "red"
+                status_text = "Non-Operative"
 
-        # Format year properly
-        year_formatted = format_year(year)
-        
-        # Simple popup - no buttons, just info
-        popup_html = f"""
-        <div style="width:200px; font-family:Arial;">
-          <b style="font-size:14px;">{unit}</b><br>
-          <span style="color:{marker_color};">● {status_text}</span><br>
-          <small>Type: {v_type} | Year: {year_formatted}</small><br>
-          <small>Project: {project}</small>
-        </div>
-        """
+            # Format year properly
+            year_formatted = format_year(year)
+            
+            # Simple popup - no buttons, just info
+            popup_html = f"""
+            <div style="width:200px; font-family:Arial;">
+              <b style="font-size:14px;">{unit}</b><br>
+              <span style="color:{marker_color};">● {status_text}</span><br>
+              <small>Type: {v_type} | Year: {year_formatted}</small><br>
+              <small>Project: {project}</small>
+            </div>
+            """
 
-        folium.Marker(
-            location=[r["LAT"], r["LON"]],
-            popup=folium.Popup(popup_html, max_width=250),
-            tooltip=unit,
-            icon=folium.Icon(color=marker_color, icon="truck", prefix="fa")
-        ).add_to(cluster)
+            folium.Marker(
+                location=[r["LAT"], r["LON"]],
+                popup=folium.Popup(popup_html, max_width=250),
+                tooltip=unit,
+                icon=folium.Icon(color=marker_color, icon="truck", prefix="fa")
+            ).add_to(cluster)
+    
+    else:  # PLANTS
+        # Plants markers (leaf/industry icon)
+        for _, r in map_df.iterrows():
+            operation = safe_str(r.get("Operation"))
+            country = safe_str(r.get("Country"))
+            product = safe_str(r.get("Product"))
+            plant_type = safe_str(r.get("Type"))
+            status = safe_str(r.get("Status")).lower()
+            capacity = safe_str(r.get("Capacity"))
+            
+            # Determine marker color based on status
+            if status in ["operative", "active"]:
+                marker_color = "green"
+                status_text = "Active"
+            else:
+                marker_color = "red"
+                status_text = "Inactive"
+            
+            # Simple popup - no buttons, just info
+            popup_html = f"""
+            <div style="width:200px; font-family:Arial;">
+              <b style="font-size:14px;">{operation}</b><br>
+              <span style="color:{marker_color};">● {status_text}</span><br>
+              <small>Type: {plant_type}</small><br>
+              <small>Product: {product}</small><br>
+              <small>Capacity: {capacity}</small><br>
+              <small>Country: {country}</small>
+            </div>
+            """
+
+            folium.Marker(
+                location=[r["LAT"], r["LON"]],
+                popup=folium.Popup(popup_html, max_width=250),
+                tooltip=operation,
+                icon=folium.Icon(color=marker_color, icon="industry", prefix="fa")
+            ).add_to(cluster)
 
     # Inject CSS directly into map to hide attribution
     hide_attribution_css = """
@@ -359,45 +516,118 @@ if st.session_state.page == "map":
         returned_objects=["last_object_clicked_tooltip"]
     )
 
-    # Check if a marker was clicked - update selection
-    vehicle_list = sorted(map_df["Unit"].astype(str).unique().tolist())
-    
-    if map_output and map_output.get("last_object_clicked_tooltip"):
-        clicked_unit = map_output["last_object_clicked_tooltip"]
-        if clicked_unit in vehicle_list:
-            # Only rerun if the selection actually changed
-            if st.session_state.get("map_selected_unit") != clicked_unit:
-                st.session_state.map_selected_unit = clicked_unit
-                st.rerun()
+    # Check if a marker was clicked - update selection (only for Fleet)
+    if st.session_state.dataset == "FLEET":
+        vehicle_list = sorted(map_df["Unit"].astype(str).unique().tolist())
+        
+        if map_output and map_output.get("last_object_clicked_tooltip"):
+            clicked_unit = map_output["last_object_clicked_tooltip"]
+            if clicked_unit in vehicle_list:
+                # Only rerun if the selection actually changed
+                if st.session_state.get("map_selected_unit") != clicked_unit:
+                    st.session_state.map_selected_unit = clicked_unit
+                    st.rerun()
     
     st.markdown("---")
+    
+    # For PLANTS: Show two charts (Plants per Region, Plants per Country)
+    if st.session_state.dataset == "PLANTS":
+        st.subheader("📊 Plants Analytics")
+        
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            # Chart 1: Plants per Region
+            region_counts = map_df["Region"].value_counts().sort_index()
+            
+            fig1 = go.Figure(data=[
+                go.Bar(
+                    x=region_counts.index,
+                    y=region_counts.values,
+                    marker_color='lightblue',
+                    text=region_counts.values,
+                    textposition='auto'
+                )
+            ])
+            fig1.update_layout(
+                title="Plants per Region",
+                xaxis_title="Region",
+                yaxis_title="Number of Plants",
+                height=400
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with chart_col2:
+            # Chart 2: Plants per Country
+            country_counts = map_df["Country"].value_counts().head(10)  # Top 10 countries
+            
+            fig2 = go.Figure(data=[
+                go.Bar(
+                    x=country_counts.index,
+                    y=country_counts.values,
+                    marker_color='lightgreen',
+                    text=country_counts.values,
+                    textposition='auto'
+                )
+            ])
+            fig2.update_layout(
+                title="Plants per Country (Top 10)",
+                xaxis_title="Country",
+                yaxis_title="Number of Plants",
+                height=400
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        st.markdown("---")
     
     # Check if filters are active (region or country)
     filters_active = bool(f_region) or bool(f_country)
     
     if filters_active:
-        # Show list of all filtered vehicles
-        st.subheader(f"📋 Filtered Vehicles ({len(map_df)} found)")
+        # Show list of all filtered items
+        if st.session_state.dataset == "FLEET":
+            st.subheader(f"📋 Filtered Vehicles ({len(map_df)} found)")
+        else:
+            st.subheader(f"📋 Filtered Plants ({len(map_df)} found)")
         
         # Create a display dataframe with selected columns
         display_df = map_df.copy()
-        display_df["Status"] = display_df["Status"].astype(str)
-        display_df["Body Year_fmt"] = display_df["Body Year"].apply(format_year)
-        display_df["Type_fmt"] = display_df["Type"].astype(str)
-        display_df["Country_fmt"] = display_df["Country"].astype(str)
-        display_df["Project"] = display_df["Key Account"].astype(str)
-        display_df["Condition_fmt"] = display_df["Condition"].astype(str)
         
-        # Select and reorder columns for display
-        display_table = display_df[["Unit", "Status", "Body Year_fmt", "Type_fmt", "Country_fmt", "Project", "Condition_fmt"]]
-        display_table.columns = ["Unit", "Status", "Body Year", "Type", "Country", "Project", "Condition"]
+        if st.session_state.dataset == "FLEET":
+            display_df["Status"] = display_df["Status"].astype(str)
+            display_df["Body Year_fmt"] = display_df["Body Year"].apply(format_year)
+            display_df["Type_fmt"] = display_df["Type"].astype(str)
+            display_df["Country_fmt"] = display_df["Country"].astype(str)
+            display_df["Project"] = display_df["Key Account"].astype(str)
+            display_df["Condition_fmt"] = display_df["Condition"].astype(str)
+            
+            # Select and reorder columns for display
+            display_table = display_df[["Unit", "Status", "Body Year_fmt", "Type_fmt", "Country_fmt", "Project", "Condition_fmt"]]
+            display_table.columns = ["Unit", "Status", "Body Year", "Type", "Country", "Project", "Condition"]
+        else:  # PLANTS
+            display_df["Status"] = display_df["Status"].astype(str)
+            display_df["Type_fmt"] = display_df["Type"].astype(str)
+            display_df["Country_fmt"] = display_df["Country"].astype(str)
+            display_df["Product_fmt"] = display_df["Product"].astype(str)
+            display_df["Capacity_fmt"] = display_df["Capacity"].astype(str)
+            
+            # Select and reorder columns for display
+            display_table = display_df[["Operation", "Status", "Type_fmt", "Product_fmt", "Country_fmt", "Capacity_fmt"]]
+            display_table.columns = ["Operation", "Status", "Type", "Product", "Country", "Capacity"]
         
         # Color code by status
         def highlight_status(row):
-            if str(row['Status']).lower() == 'operative':
-                return ['background-color: #d4edda'] * len(row)
-            else:
-                return ['background-color: #f8d7da'] * len(row)
+            status_val = str(row['Status']).lower()
+            if st.session_state.dataset == "FLEET":
+                if status_val == 'operative':
+                    return ['background-color: #d4edda'] * len(row)
+                else:
+                    return ['background-color: #f8d7da'] * len(row)
+            else:  # PLANTS
+                if status_val in ['operative', 'active']:
+                    return ['background-color: #d4edda'] * len(row)
+                else:
+                    return ['background-color: #f8d7da'] * len(row)
         
         st.dataframe(
             display_table.style.apply(highlight_status, axis=1),
@@ -971,125 +1201,212 @@ if st.session_state.page == "stats":
             st.info("Select an option to view year distribution")
 
 # =========================
-# PAGE: ADD VEHICLE
+# PAGE: ADD VEHICLE or PLANT
 # =========================
 if st.session_state.page == "add":
-    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
-    st.title(f"➕ Add Vehicle to {fleet_name} Fleet")
-    st.warning("Close Excel before saving.")
+    if st.session_state.dataset == "FLEET":
+        fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+        st.title(f"➕ Add Vehicle to {fleet_name} Fleet")
+        st.warning("Close Excel before saving.")
 
-    with st.form("add_vehicle_form"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            REGION = st.text_input("Region")
-            COUNTRY = st.text_input("Country")
-            UNIT = st.text_input("Unit")
-            KEY_ACCOUNT = st.text_input("Key Account")
-        with c2:
-            TYPE = st.text_input("Type")
-            PRODUCT = st.text_input("Product")
-            Status = st.text_input("Status")
-            Condition = st.text_input("Condition")
-        with c3:
-            CAPACITY = st.text_input("Capacity (MT)")
-            YEAR_CHASSIS = st.text_input("Chassis Year")
-            YEAR_BODY = st.text_input("Body Year")
-            Axles = st.text_input("Axles")
+        with st.form("add_vehicle_form"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                REGION = st.text_input("Region")
+                COUNTRY = st.text_input("Country")
+                UNIT = st.text_input("Unit")
+                KEY_ACCOUNT = st.text_input("Key Account")
+            with c2:
+                TYPE = st.text_input("Type")
+                PRODUCT = st.text_input("Product")
+                Status = st.text_input("Status")
+                Condition = st.text_input("Condition")
+            with c3:
+                CAPACITY = st.text_input("Capacity (MT)")
+                YEAR_CHASSIS = st.text_input("Chassis Year")
+                YEAR_BODY = st.text_input("Body Year")
+                Axles = st.text_input("Axles")
 
-        st.markdown("### Operation & Mechanical")
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            Operation = st.text_input("Operation")
-        with d2:
-            Engine_Type = st.text_input("Engine Type")
-            Engine_Number = st.text_input("Engine Number")
-        with d3:
-            Chassis = st.text_input("Chassis")
+            st.markdown("### Operation & Mechanical")
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                Operation = st.text_input("Operation")
+            with d2:
+                Engine_Type = st.text_input("Engine Type")
+                Engine_Number = st.text_input("Engine Number")
+            with d3:
+                Chassis = st.text_input("Chassis")
 
-        st.markdown("### Coordinates")
-        e1, e2 = st.columns(2)
-        with e1:
-            LAT = st.text_input("LAT")
-        with e2:
-            LON = st.text_input("LON")
+            st.markdown("### Coordinates")
+            e1, e2 = st.columns(2)
+            with e1:
+                LAT = st.text_input("LAT")
+            with e2:
+                LON = st.text_input("LON")
 
-        add_btn = st.form_submit_button("💾 Add vehicle")
+            add_btn = st.form_submit_button("💾 Add vehicle")
 
-    if add_btn:
-        if not UNIT.strip() or not COUNTRY.strip():
-            st.error("Unit and Country are required.")
-        else:
-            try:
-                new_row = {
-                    "Region": REGION.strip(),
-                    "Country": COUNTRY.strip(),
-                    "Unit": UNIT.strip(),
-                    "Key Account": KEY_ACCOUNT.strip(),
-                    "Type": TYPE.strip(),
-                    "Product": PRODUCT.strip(),
-                    "Status": Status.strip(),
-                    "Condition": Condition.strip(),
-                    "Capacity (MT)": CAPACITY.strip(),
-                    "Chassis Year": YEAR_CHASSIS.strip(),
-                    "Body Year": YEAR_BODY.strip(),
-                    "Operation": Operation.strip(),
-                    "Engine Type": Engine_Type.strip(),
-                    "Engine Number": Engine_Number.strip(),
-                    "Chassis": Chassis.strip(),
-                    "Axles": Axles.strip(),
-                    "LAT": LAT.strip(),
-                    "LON": LON.strip(),
-                }
-                
-                if USE_SUPABASE:
-                    # Save to Supabase database
-                    upsert_vehicle_db(st.session_state.fleet_type, new_row)
-                else:
-                    # Fallback to Excel for local dev
-                    df2 = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                    df2 = df2[COLUMNS]
-                    save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
-                
-                reload_data()
-                st.success("Added ✅ Saved successfully.")
-            except Exception as e:
-                st.error(f"Error: {e}")
+        if add_btn:
+            if not UNIT.strip() or not COUNTRY.strip():
+                st.error("Unit and Country are required.")
+            else:
+                try:
+                    new_row = {
+                        "Region": REGION.strip(),
+                        "Country": COUNTRY.strip(),
+                        "Unit": UNIT.strip(),
+                        "Key Account": KEY_ACCOUNT.strip(),
+                        "Type": TYPE.strip(),
+                        "Product": PRODUCT.strip(),
+                        "Status": Status.strip(),
+                        "Condition": Condition.strip(),
+                        "Capacity (MT)": CAPACITY.strip(),
+                        "Chassis Year": YEAR_CHASSIS.strip(),
+                        "Body Year": YEAR_BODY.strip(),
+                        "Operation": Operation.strip(),
+                        "Engine Type": Engine_Type.strip(),
+                        "Engine Number": Engine_Number.strip(),
+                        "Chassis": Chassis.strip(),
+                        "Axles": Axles.strip(),
+                        "LAT": LAT.strip(),
+                        "LON": LON.strip(),
+                    }
+                    
+                    if USE_SUPABASE:
+                        # Save to Supabase database
+                        upsert_vehicle_db(st.session_state.fleet_type, new_row)
+                    else:
+                        # Fallback to Excel for local dev
+                        df2 = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                        df2 = df2[COLUMNS]
+                        save_fleet_excel(df2, get_excel_path(), sheet_name=SHEET_NAME)
+                    
+                    reload_data()
+                    st.success("Added ✅ Saved successfully.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    
+    else:  # PLANTS dataset
+        st.title("➕ Add Plant")
+        st.warning("Fill in the required fields below.")
+
+        with st.form("add_plant_form"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                REGION = st.text_input("Region*")
+                COUNTRY = st.text_input("Country*")
+                OPERATION = st.text_input("Operation*")
+                PRODUCT = st.text_input("Product")
+            with c2:
+                TYPE = st.text_input("Type")
+                CAPACITY = st.text_input("Capacity")
+                FORMULATION = st.text_input("Formulation")
+            with c3:
+                RAW_MATERIAL = st.text_input("Raw Material")
+                STATUS = st.text_input("Status")
+
+            st.markdown("### Coordinates")
+            e1, e2 = st.columns(2)
+            with e1:
+                LAT = st.text_input("LAT")
+            with e2:
+                LON = st.text_input("LON")
+
+            add_btn = st.form_submit_button("💾 Add Plant")
+
+        if add_btn:
+            if not OPERATION.strip():
+                st.error("Operation is required.")
+            else:
+                try:
+                    new_row = {
+                        "Region": REGION.strip(),
+                        "Country": COUNTRY.strip(),
+                        "Operation": OPERATION.strip(),
+                        "Product": PRODUCT.strip(),
+                        "Type": TYPE.strip(),
+                        "Capacity": CAPACITY.strip(),
+                        "Formulation": FORMULATION.strip(),
+                        "Raw Material": RAW_MATERIAL.strip(),
+                        "Status": STATUS.strip(),
+                        "LAT": LAT.strip(),
+                        "LON": LON.strip(),
+                    }
+                    
+                    if USE_SUPABASE:
+                        # Save to Supabase database
+                        upsert_plant_db(new_row)
+                    else:
+                        # For local dev, could append to dataframe
+                        pass
+                    
+                    reload_data()
+                    st.success("Plant added ✅ Saved successfully.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 # =========================
-# PAGE: DOWNLOAD FLEET
+# PAGE: DOWNLOAD FLEET or PLANTS
 # =========================
 if st.session_state.page == "download":
-    fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
-    st.title(f"📥 Download {fleet_name} Fleet Data")
+    if st.session_state.dataset == "FLEET":
+        fleet_name = FLEET_CONFIG[st.session_state.fleet_type]["name"]
+        st.title(f"📥 Download {fleet_name} Fleet Data")
+        
+        st.info(f"Total vehicles in **{fleet_name}** database: **{len(df)}**")
+        
+        # Show preview of data
+        st.markdown("### Data Preview")
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Convert dataframe to Excel in memory
+        from io import BytesIO
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Fleet')
+        excel_data = output.getvalue()
+        
+        fleet_prefix = st.session_state.fleet_type.lower()
+        st.download_button(
+            label=f"📥 Download Complete {fleet_name} Fleet (Excel)",
+            data=excel_data,
+            file_name=datetime.now().strftime(f"{fleet_prefix}_fleet_%d_%m_%Y.xlsx"),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+        
+        st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
     
-    st.info(f"Total vehicles in **{fleet_name}** database: **{len(df)}**")
-    
-    # Show preview of data
-    st.markdown("### Data Preview")
-    st.dataframe(df.head(10), use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Convert dataframe to Excel in memory
-    from io import BytesIO
-    
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Fleet')
-    excel_data = output.getvalue()
-    
-    fleet_prefix = st.session_state.fleet_type.lower()
-    st.download_button(
-        label=f"📥 Download Complete {fleet_name} Fleet (Excel)",
-        data=excel_data,
-        file_name=datetime.now().strftime(f"{fleet_prefix}_fleet_%d_%m_%Y.xlsx"),
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        type="primary"
-    )
-    
-    st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
-
-    
-    st.caption(f"This will download all {fleet_name} fleet data including all columns and vehicles.")
-
+    else:  # PLANTS dataset
+        st.title("📥 Download Plants Data")
+        
+        st.info(f"Total plants in database: **{len(df)}**")
+        
+        # Show preview of data
+        st.markdown("### Data Preview")
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Convert dataframe to Excel in memory
+        from io import BytesIO
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Plants')
+        excel_data = output.getvalue()
+        
+        st.download_button(
+            label="📥 Download Complete Plants Data (Excel)",
+            data=excel_data,
+            file_name=datetime.now().strftime("plants_%d_%m_%Y.xlsx"),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+        
+        st.caption("This will download all plants data including all columns.")
