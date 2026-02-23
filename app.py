@@ -24,8 +24,8 @@ st.set_page_config(page_title="Fleet Dashboard", page_icon="🚛", layout="wide"
 
 # Fleet type configuration
 FLEET_CONFIG = {
-    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": "⛏️"},
-    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": "🚇"}
+    "OP": {"path": "data/fleet.xlsx", "name": "Open Pit", "icon": ""},
+    "UG": {"path": "data/UG.xlsx", "name": "Underground", "icon": ""}
 }
 SHEET_NAME = "Fleet"
 
@@ -171,11 +171,11 @@ st.sidebar.markdown("##### Dataset Selection")
 # Display icons
 icon_col1, icon_col2, icon_col3 = st.sidebar.columns(3)
 with icon_col1:
-    st.markdown("<div style='text-align: center; font-size: 24px;'>⛏️</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; font-size: 24px;'></div>", unsafe_allow_html=True)
 with icon_col2:
-    st.markdown("<div style='text-align: center; font-size: 24px;'>🚇</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; font-size: 24px;'></div>", unsafe_allow_html=True)
 with icon_col3:
-    st.markdown("<div style='text-align: center; font-size: 24px;'>🏭</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; font-size: 24px;'></div>", unsafe_allow_html=True)
 
 # Three toggle buttons
 toggle_col1, toggle_col2, toggle_col3 = st.sidebar.columns(3)
