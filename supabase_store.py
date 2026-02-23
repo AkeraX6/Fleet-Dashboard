@@ -342,11 +342,16 @@ def upsert_plant_db(row_app: dict) -> None:
             value = row_app[app_col]
             payload[db_col] = _convert_plants_value_for_db(app_col, value)
     
-    # Upsert with conflict on operation
-    sb.table(PLANTS_TABLE).upsert(
-        payload,
-        on_conflict="operation"
-    ).execute()
+    # Check if plant with this operation already exists
+    existing = sb.table(PLANTS_TABLE).select("id").eq("operation", operation).execute()
+    
+    if existing.data and len(existing.data) > 0:
+        # Update existing plant
+        plant_id = existing.data[0]["id"]
+        sb.table(PLANTS_TABLE).update(payload).eq("id", plant_id).execute()
+    else:
+        # Insert new plant
+        sb.table(PLANTS_TABLE).insert(payload).execute()
 
 
 def delete_plant_db(operation: str) -> None:
@@ -361,4 +366,3 @@ def delete_plant_db(operation: str) -> None:
     sb.table(PLANTS_TABLE).delete().eq(
         "operation", str(operation).strip()
     ).execute()
-
