@@ -311,13 +311,18 @@ else:  # PLANTS
 if st.session_state.page in ["map", "details", "edit_one"]:
     st.sidebar.markdown("---")
     st.sidebar.caption("Filters")
+    
+    # Add refresh data button
+    if st.sidebar.button("🔄 Refresh Data", use_container_width=True, help="Clear cache and reload from database"):
+        reload_data()
+        st.rerun()
 
     if st.session_state.dataset == "FLEET":
-        # Fleet filters
-        regions = sorted([x for x in df["Region"].dropna().unique()])
-        countries = sorted([x for x in df["Country"].dropna().unique()])
-        statuses = sorted([x for x in df["Status"].dropna().unique()])
-        vehicle_types = sorted([x for x in df["Type"].dropna().unique()])
+        # Fleet filters - normalize country/region names to avoid duplicates
+        regions = sorted(list(set([str(x).strip() for x in df["Region"].dropna().unique()])))
+        countries = sorted(list(set([str(x).strip() for x in df["Country"].dropna().unique()])))
+        statuses = sorted(list(set([str(x).strip() for x in df["Status"].dropna().unique()])))
+        vehicle_types = sorted(list(set([str(x).strip() for x in df["Type"].dropna().unique()])))
 
         f_region = st.sidebar.multiselect("Region", regions)
         f_country = st.sidebar.multiselect("Country", countries)
@@ -325,11 +330,11 @@ if st.session_state.page in ["map", "details", "edit_one"]:
         f_type = st.sidebar.multiselect("Type", vehicle_types)
         f_operation = []  # Not used for fleet
     else:  # PLANTS
-        # Plants filters: Region, Country, Operation, Status
-        regions = sorted([x for x in df["Region"].dropna().unique()])
-        countries = sorted([x for x in df["Country"].dropna().unique()])
-        operations = sorted([x for x in df["Operation"].dropna().unique()])
-        statuses = sorted([x for x in df["Status"].dropna().unique()])
+        # Plants filters: Region, Country, Operation, Status - normalize to avoid duplicates
+        regions = sorted(list(set([str(x).strip() for x in df["Region"].dropna().unique()])))
+        countries = sorted(list(set([str(x).strip() for x in df["Country"].dropna().unique()])))
+        operations = sorted(list(set([str(x).strip() for x in df["Operation"].dropna().unique()])))
+        statuses = sorted(list(set([str(x).strip() for x in df["Status"].dropna().unique()])))
 
         f_region = st.sidebar.multiselect("Region", regions)
         f_country = st.sidebar.multiselect("Country", countries)
@@ -1568,4 +1573,5 @@ if st.session_state.page == "download":
         )
         
         st.caption("This will download all plants data including all columns.")
+
 
