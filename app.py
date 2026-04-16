@@ -1298,8 +1298,8 @@ if st.session_state.page == "stats":
                     # Show project names when filtering by country
                     hover_texts_year = []
                     for _, row in year_counts.iterrows():
-                        units = row["Unit"][:8]
-                        projects = list(set(row["Key Account"]))[:5]
+                        units = [str(u) for u in row["Unit"][:8]]
+                        projects = [str(p) for p in list(set(row["Key Account"]))[:5]]
                         extra_units = "..." if len(row["Unit"]) > 8 else ""
                         extra_proj = "..." if len(set(row["Key Account"])) > 5 else ""
                         hover_texts_year.append(
@@ -1311,7 +1311,7 @@ if st.session_state.page == "stats":
                 else:
                     hover_texts_year = []
                     for _, row in year_counts.iterrows():
-                        units = row["Unit"][:8]
+                        units = [str(u) for u in row["Unit"][:8]]
                         extra = "..." if len(row["Unit"]) > 8 else ""
                         hover_texts_year.append(
                             f"<b>Year {int(row['YEAR_NUM'])}</b><br>"
@@ -1573,5 +1573,6 @@ if st.session_state.page == "download":
         )
         
         st.caption("This will download all plants data including all columns.")
+
 
 
